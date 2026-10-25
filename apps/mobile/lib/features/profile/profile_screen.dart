@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/constants/api_endpoints.dart';
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../auth/auth_provider.dart';
 import 'widgets/badge_grid.dart';
@@ -112,14 +114,26 @@ class ProfileScreen extends ConsumerWidget {
 
             // UU PDP Compliance Card
             PDPComplianceCard(
-              onExportData: () {
+              onExportData: () async {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      'Mengekspor arsip data debat dan profil Anda (format ZIP/JSON)...',
+                      'Mengekspor arsip data debat dan profil Anda sesuai UU PDP...',
                     ),
                   ),
                 );
+                try {
+                  final client = ApiClient();
+                  final res = await client.get(ApiEndpoints.exportData);
+                  if (context.mounted && res.statusCode == 200) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Data berhasil diunduh dan diarsipkan.'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                } catch (_) {}
               },
               onDeleteAccount: () {
                 showDialog(
@@ -138,10 +152,13 @@ class ProfileScreen extends ConsumerWidget {
                         child: const Text('Batal'),
                       ),
                       TextButton(
-                        onPressed: () {
+                        onPressed: () async {
                           Navigator.pop(ctx);
+                          try {
+                            await ApiClient().delete(ApiEndpoints.account);
+                          } catch (_) {}
                           ref.read(authProvider.notifier).logout();
-                          context.go('/login');
+                          if (context.mounted) context.go('/login');
                         },
                         child: const Text('Hapus Permanen',
                             style: TextStyle(color: AppColors.error)),

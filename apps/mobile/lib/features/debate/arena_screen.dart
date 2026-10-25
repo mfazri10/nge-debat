@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/websocket/debate_socket.dart';
+import '../auth/auth_provider.dart';
 import 'models/debate_message.dart';
 import 'widgets/scorecard_overlay.dart';
 import 'widgets/crowd_sentiment_bar.dart';
@@ -27,6 +29,9 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  late final DebateSocketService _socketService;
+  StreamSubscription? _socketSubscription;
+
   int _currentRound = 1;
   final int _totalRounds = 3;
   int _secondsLeft = 180;
@@ -40,7 +45,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   String? _detectedFallacy;
 
   // Sentimen Penonton Live
-  final String _activeReaction = '👏';
+  String _activeReaction = '👏';
   int _audienceSentiment = 75;
   String _latestCrowdComment = '“Analogi pendidikan tingginya sangat mengena!”';
 
@@ -49,15 +54,128 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   @override
   void initState() {
     super.initState();
+    final topic = widget.initialData?['topic'] ??
+        'Dewan ini akan mewajibkan adopsi AI pada kurikulum pendidikan tinggi nasional';
+
     _messages = [
       DebateMessage(
         speaker: 'Moderator AI',
         text:
-            'Selamat datang di Arena Debat. Mosi: "Dewan ini akan mewajibkan adopsi AI pada kurikulum pendidikan tinggi nasional". Giliran pembicara afirmatif (User) dipersilakan.',
+            'Selamat datang di Arena Debat. Mosi: "$topic". Giliran pembicara afirmatif (User) dipersilakan.',
         isAi: true,
       ),
     ];
     _startTimer();
+    _initWebSocket();
+  }
+
+  void _initWebSocket() {
+    _socketService = DebateSocketService();
+    final token = ref.read(authProvider).token ?? '';
+    _socketService.connect(widget.sessionId, token);
+
+    _socketSubscription = _socketService.messages.listen((msg) {
+      if (!mounted) return;
+      final type = msg['type'] as String?;
+      final payload = msg['payload'];
+
+      switch (type) {
+        case 'debate:ai_thinking':
+          setState(() {
+            _isAiSpeaking = true;
+          });
+          break;
+
+        case 'debate:ai_chunk':
+          if (payload is Map<String, dynamic>) {
+            final content = payload['content'] as String? ?? '';
+            final isDone = payload['isDone'] as bool? ?? false;
+            final personaName = widget.initialData?['persona'] ?? 'AI Lawan';
+
+            setState(() {
+              if (_messages.isNotEmpty && _messages.last.isAi && _isAiSpeaking) {
+                _messages.last = _messages.last.copyWith(
+                  text: _messages.last.text + content,
+                );
+              } else {
+                _messages.add(
+                  DebateMessage(
+                    speaker: 'Lawan ($personaName)',
+                    text: content,
+                    isAi: true,
+                  ),
+                );
+              }
+              if (isDone) {
+                _isAiSpeaking = false;
+                if (_currentRound < _totalRounds) {
+                  _currentRound++;
+                  _secondsLeft = 180;
+                }
+              }
+            });
+            _scrollToBottom();
+          }
+          break;
+
+        case 'debate:judge_score':
+          if (payload is Map<String, dynamic>) {
+            final judgeType = payload['judge_type']?.toString().toUpperCase();
+            final totalScore = (payload['total_score'] as num?)?.toInt() ?? 80;
+            final fallacy = payload['fallacy_detected']?.toString();
+
+            setState(() {
+              if (judgeType == 'LOGIKA') {
+                _scoreLogika = totalScore;
+                if (fallacy != null && fallacy.isNotEmpty) {
+                  _detectedFallacy = fallacy;
+                }
+              } else if (judgeType == 'RETORIKA') {
+                _scoreRetorika = totalScore;
+              } else if (judgeType == 'DAMPAK') {
+                _scoreDampak = totalScore;
+              }
+            });
+          }
+          break;
+
+        case 'debate:audience':
+          if (payload is Map<String, dynamic>) {
+            final reactionType = payload['reaction_type']?.toString();
+            final intensity = (payload['intensity'] as num?)?.toInt() ?? 75;
+            final comments = payload['comments'] as List<dynamic>?;
+
+            setState(() {
+              _audienceSentiment = intensity;
+              if (reactionType == 'APPLAUSE') {
+                _activeReaction = '👏';
+              } else if (reactionType == 'EXCITED') {
+                _activeReaction = '🔥';
+              } else if (reactionType == 'BOO') {
+                _activeReaction = '👎';
+              } else if (reactionType == 'SKEPTICAL') {
+                _activeReaction = '🤔';
+              } else {
+                _activeReaction = '💬';
+              }
+
+              if (comments != null && comments.isNotEmpty) {
+                _latestCrowdComment = '“${comments.last}”';
+              }
+            });
+          }
+          break;
+
+        case 'debate:error':
+          if (payload is Map<String, dynamic>) {
+            final errorMsg = payload['message'] as String? ?? 'Terjadi kesalahan arena';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMsg), backgroundColor: AppColors.error),
+            );
+          }
+          break;
+      }
+    });
   }
 
   void _startTimer() {
@@ -73,6 +191,8 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _socketSubscription?.cancel();
+    _socketService.dispose();
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -105,38 +225,44 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       );
       _textController.clear();
       _isAiSpeaking = true;
-      _scoreLogika = 86;
-      _scoreRetorika = 81;
-      _scoreDampak = 88;
-      _audienceSentiment = 82;
-      _latestCrowdComment = '“Data empiris yang diajukan kuat sekali.”';
     });
     _scrollToBottom();
 
-    // AI Opponent counter-speech simulation (Microservice gRPC)
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() {
-        _messages.add(
-          DebateMessage(
-            speaker: 'Lawan (Oposisi AI - Presiden RI)',
-            text:
-                'Saudara pembicara melupakan disparitas infrastruktur digital di wilayah 3T. Kewajiban kurikulum AI secara terburu-buru tanpa pemerataan listrik dan internet hanya akan memperlebar jurang ketimpangan antardaerah.',
-            isAi: true,
-            score: 88,
-            fallacy: 'Hasty Generalization (Terklarifikasi)',
-          ),
-        );
-        _isAiSpeaking = false;
-        _detectedFallacy = 'Hasty Generalization (Lawan menguji premis Anda)';
-        _audienceSentiment = 79;
-        _latestCrowdComment = '“Sanggahan oposisi tepat sasaran pada isu keadilan sosial!”';
+    // Kirim pesan ke WebSocket API Gateway
+    if (_socketService.state == DebateSocketState.connected) {
+      _socketService.sendArgument(
+        sessionId: widget.sessionId,
+        content: text,
+      );
+    } else {
+      // Fallback graceful simulasi jika backend offline saat development
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!mounted) return;
+        final personaName = widget.initialData?['persona'] ?? 'AI Lawan';
+        setState(() {
+          _messages.add(
+            DebateMessage(
+              speaker: 'Lawan ($personaName)',
+              text:
+                  'Saudara pembicara melupakan disparitas infrastruktur digital di wilayah 3T. Kebijakan ini berisiko memperlebar jurang ketimpangan jika dipaksakan tanpa kesiapan fasilitas pendukung.',
+              isAi: true,
+              score: 85,
+            ),
+          );
+          _isAiSpeaking = false;
+          _scoreLogika = 86;
+          _scoreRetorika = 80;
+          _scoreDampak = 84;
+          _audienceSentiment = 80;
+          _latestCrowdComment = '“Sanggahan oposisi tajam pada isu pemerataan fasilitas!”';
+        });
+        _scrollToBottom();
       });
-      _scrollToBottom();
-    });
+    }
   }
 
   void _finishDebate() {
+    _socketService.sendForfeit(widget.sessionId);
     context.pushReplacement('/results/${widget.sessionId}', extra: {
       'scoreLogika': _scoreLogika,
       'scoreRetorika': _scoreRetorika,

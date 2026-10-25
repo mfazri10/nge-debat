@@ -18,6 +18,22 @@ class DebateMessage {
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         timestamp = timestamp ?? DateTime.now();
 
+  DebateMessage copyWith({
+    String? text,
+    int? score,
+    String? fallacy,
+  }) {
+    return DebateMessage(
+      id: id,
+      speaker: speaker,
+      text: text ?? this.text,
+      isAi: isAi,
+      score: score ?? this.score,
+      fallacy: fallacy ?? this.fallacy,
+      timestamp: timestamp,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'speaker': speaker,

@@ -25,12 +25,16 @@ class DebateSocketService {
           try {
             final decoded = jsonDecode(data as String) as Map<String, dynamic>;
             _messageController.add(decoded);
-          } catch (e) {
+          } catch (_) {
             // Raw text or non-json message
           }
         },
         onError: (err) {
           _state = DebateSocketState.error;
+          _messageController.add({
+            'type': 'debate:error',
+            'payload': {'message': 'Koneksi arena terputus: $err'},
+          });
         },
         onDone: () {
           _state = DebateSocketState.disconnected;
@@ -38,20 +42,52 @@ class DebateSocketService {
       );
     } catch (e) {
       _state = DebateSocketState.error;
+      _messageController.add({
+        'type': 'debate:error',
+        'payload': {'message': 'Gagal menghubungkan ke arena debat: $e'},
+      });
     }
   }
 
   void sendArgument({
     required String sessionId,
     required String content,
-    String contentType = 'TEXT',
   }) {
     if (_channel != null && _state == DebateSocketState.connected) {
       final payload = jsonEncode({
-        'action': 'argument',
-        'session_id': sessionId,
+        'type': 'debate:argument',
+        'sessionId': sessionId,
         'content': content,
-        'content_type': contentType,
+      });
+      _channel!.sink.add(payload);
+    }
+  }
+
+  void sendForfeit(String sessionId) {
+    if (_channel != null && _state == DebateSocketState.connected) {
+      final payload = jsonEncode({
+        'type': 'debate:forfeit',
+        'sessionId': sessionId,
+      });
+      _channel!.sink.add(payload);
+    }
+  }
+
+  void sendPause(String sessionId) {
+    if (_channel != null && _state == DebateSocketState.connected) {
+      final payload = jsonEncode({
+        'type': 'debate:pause',
+        'sessionId': sessionId,
+      });
+      _channel!.sink.add(payload);
+    }
+  }
+
+  void sendResume(String sessionId) {
+    if (_channel != null && _state == DebateSocketState.connected) {
+      final payload = jsonEncode({
+        'type': 'debate:resume',
+        'sessionId': sessionId,
       });
       _channel!.sink.add(payload);
     }

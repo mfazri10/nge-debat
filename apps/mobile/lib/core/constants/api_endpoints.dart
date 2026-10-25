@@ -1,7 +1,18 @@
+import 'package:flutter/foundation.dart';
+
 class ApiEndpoints {
-  // Ganti host dengan 10.0.2.2 untuk Android Emulator atau IP lokal untuk device fisik
-  static const String baseUrl = 'http://10.0.2.2:8080/v1';
-  static const String wsBaseUrl = 'ws://10.0.2.2:8080/ws';
+  /// Mendeteksi host backend secara dinamis:
+  /// - Android Emulator: 10.0.2.2:8080
+  /// - Web / iOS Simulator / Desktop: localhost:8080
+  static String get host {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return '10.0.2.2:8080';
+    }
+    return 'localhost:8080';
+  }
+
+  static String get baseUrl => 'http://$host/v1';
+  static String get wsBaseUrl => 'ws://$host/ws';
 
   // Auth
   static const String register = '/auth/register';

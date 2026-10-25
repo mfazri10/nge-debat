@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/constants/api_endpoints.dart';
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../auth/auth_provider.dart';
 import 'widgets/user_stat_card.dart';
@@ -20,8 +22,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   String _selectedFormat = 'KDMI';
   String _selectedStance = 'PRO';
   String _selectedPersona = 'Presiden RI';
+  bool _isLoading = false;
 
-  final List<String> _sampleMotions = [
+  List<String> _sampleMotions = [
     'Dewan ini akan mewajibkan adopsi AI pada kurikulum pendidikan tinggi nasional.',
     'Dewan ini percaya subsidi kendaraan listrik memperlebar kesenjangan ekonomi.',
     'Dewan ini akan melarang algoritma media sosial yang memicu kemarahan publik.',
@@ -37,8 +40,62 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     {'name': 'Silicon Valley CEO', 'desc': 'Disrupsi AI, pasar bebas & masa depan'},
   ];
 
-  void _startDebate() {
-    final sessionId = 'deb-${DateTime.now().millisecondsSinceEpoch % 10000}';
+  @override
+  void initState() {
+    super.initState();
+    _fetchLiveMotions();
+  }
+
+  Future<void> _fetchLiveMotions() async {
+    try {
+      final client = ApiClient();
+      final res = await client.get(ApiEndpoints.motions);
+      if (res.statusCode == 200 && res.data is List && (res.data as List).isNotEmpty) {
+        final liveMotions = (res.data as List)
+            .map((m) => m['text']?.toString() ?? '')
+            .where((t) => t.isNotEmpty)
+            .toList();
+        if (liveMotions.isNotEmpty && mounted) {
+          setState(() {
+            _sampleMotions = liveMotions;
+            _selectedTopic = liveMotions.first;
+          });
+        }
+      }
+    } catch (_) {
+      // Menggunakan sample motions bawaan jika offline
+    }
+  }
+
+  Future<void> _startDebate() async {
+    setState(() => _isLoading = true);
+    String sessionId = 'deb-${DateTime.now().millisecondsSinceEpoch % 10000}';
+
+    try {
+      final client = ApiClient();
+      final res = await client.post(ApiEndpoints.sessions, data: {
+        'topic': _selectedTopic,
+        'format': _selectedFormat,
+        'stance': _selectedStance,
+        'persona_name': _selectedPersona,
+        'total_rounds': 3,
+        'time_per_turn': 180,
+      });
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        if (res.data is Map && res.data['id'] != null) {
+          sessionId = res.data['id'].toString();
+        }
+      }
+    } catch (_) {
+      // Fallback ID lokal
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+
+    if (!mounted) return;
     context.push('/arena/$sessionId', extra: {
       'topic': _selectedTopic,
       'format': _selectedFormat,
@@ -102,7 +159,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
             const SizedBox(height: 24),
 
-            // AI Persona Slider
+            // AI Opponent Persona Slider
             PersonaSlider(
               personas: _personas,
               selectedPersona: _selectedPersona,
@@ -111,35 +168,39 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
             const SizedBox(height: 32),
 
-            // Launch Arena CTA Button
+            // Enter Arena Button
             SizedBox(
               width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: _startDebate,
+              height: 56,
+              child: ElevatedButton.icon(
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.flash_on, color: Colors.white),
+                label: Text(
+                  _isLoading ? 'Menyiapkan Arena...' : 'Masuk ke Arena Debat',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
+                  elevation: 6,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  elevation: 4,
-                  shadowColor: AppColors.primary.withOpacity(0.4),
                 ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.bolt, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Mulai Debat Real-Time',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
+                onPressed: _isLoading ? null : _startDebate,
               ),
             ),
-            const SizedBox(height: 20),
           ],
         ),
       ),

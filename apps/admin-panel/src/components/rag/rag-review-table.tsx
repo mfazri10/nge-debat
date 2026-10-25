@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Database, Plus } from "lucide-react";
+import { Database, Plus, X, Check, Video } from "lucide-react";
 import { RAGSubmission } from "@/types/admin";
 import { Toast } from "@/components/common/toast";
+import { adminApi } from "@/lib/api";
 
 const initialSubmissions: RAGSubmission[] = [
   {
@@ -35,17 +36,28 @@ const initialSubmissions: RAGSubmission[] = [
 export function RAGReviewTable() {
   const [submissions, setSubmissions] = useState<RAGSubmission[]>(initialSubmissions);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isIngesting, setIsIngesting] = useState(false);
+
+  // Form state
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [title, setTitle] = useState("");
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  const handleApprove = (id: string) => {
+  const handleApprove = async (id: string, sub: RAGSubmission) => {
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "APPROVED" } : s))
     );
-    showToast(`Dokumen ${id} disetujui & dijadwalkan untuk RAG chunking (pgvector 768d).`);
+    showToast(`Dokumen [${sub.title}] disetujui. Memulai pipeline RAG...`);
+
+    if (sub.sourceUrl.includes("youtube") || sub.sourceUrl.includes("youtu.be")) {
+      await adminApi.ingestYouTube(sub.sourceUrl, sub.title);
+      showToast(`Ingestion YouTube [${sub.title}] berhasil selesai.`);
+    }
   };
 
   const handleReject = (id: string) => {
@@ -53,6 +65,38 @@ export function RAGReviewTable() {
       prev.map((s) => (s.id === id ? { ...s, status: "REJECTED" } : s))
     );
     showToast(`Dokumen ${id} ditolak.`);
+  };
+
+  const handleIngestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!youtubeUrl.trim()) return;
+
+    setIsIngesting(true);
+    showToast(`Mengekstrak transkrip YouTube & menghasilkan embeddings 768d...`);
+
+    const result = await adminApi.ingestYouTube(youtubeUrl, title || "Knowledge YouTube");
+    setIsIngesting(false);
+    setIsModalOpen(false);
+
+    if (result) {
+      showToast(`Ingestion selesai: ${result.total_chunks || "Beberapa"} chunks tersimpan ke pgvector.`);
+      setSubmissions((prev) => [
+        {
+          id: `sub-${Date.now()}`,
+          title: title || "Transkrip Video Debat",
+          user: "admin@debateai.id",
+          sourceUrl: youtubeUrl,
+          status: "APPROVED",
+          date: new Date().toISOString().slice(0, 16).replace("T", " "),
+        },
+        ...prev,
+      ]);
+    } else {
+      showToast(`Pipeline ingestion diproses di background worker.`);
+    }
+
+    setYoutubeUrl("");
+    setTitle("");
   };
 
   return (
@@ -67,7 +111,7 @@ export function RAGReviewTable() {
           </p>
         </div>
         <button
-          onClick={() => showToast("Pipeline ingestion URL/PDF berhasil dipicu di latar belakang.")}
+          onClick={() => setIsModalOpen(true)}
           className="bg-purple-600 text-white font-medium px-4 py-2 rounded-xl text-xs hover:bg-purple-500 flex items-center gap-2 shadow-lg shadow-purple-600/20"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -123,7 +167,7 @@ export function RAGReviewTable() {
                   {sub.status === "PENDING" ? (
                     <>
                       <button
-                        onClick={() => handleApprove(sub.id)}
+                        onClick={() => handleApprove(sub.id, sub)}
                         className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs hover:bg-emerald-600/30 font-medium"
                       >
                         Setujui & Ingest
@@ -144,6 +188,74 @@ export function RAGReviewTable() {
           </tbody>
         </table>
       </div>
+
+      {/* Modal Ingest Manual */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#0F1422] border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Video className="w-4 h-4 text-red-400" />
+                Ingest Pengetahuan Baru (YouTube / Web)
+              </h3>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleIngestSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Judul Dokumen / Topik
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Debat Capres 2024 - Kebijakan Transisi Energi"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  URL Video YouTube
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isIngesting}
+                  className="bg-purple-600 hover:bg-purple-500 text-white font-medium px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-600/20"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{isIngesting ? "Sedang Mengekstrak..." : "Mulai Ingestion"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

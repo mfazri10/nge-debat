@@ -22,7 +22,7 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from debateai.v1 from debateai.v1 import messages_pb2 as proto_dot_messages__pb2
+from debateai.v1 import messages_pb2 as proto_dot_messages__pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12proto/debate.proto\x12\x0b\x64\x65\x62\x61teai.v1\x1a\x14proto/messages.proto2\xac\x03\n\x0c\x44\x65\x62\x61teEngine\x12W\n\x18GenerateOpponentResponse\x12\x1c.debateai.v1.OpponentRequest\x1a\x1d.debateai.v1.OpponentResponse\x12T\n\x16StreamOpponentResponse\x12\x1c.debateai.v1.OpponentRequest\x1a\x1a.debateai.v1.OpponentChunk0\x01\x12\x46\n\rScoreArgument\x12\x19.debateai.v1.ScoreRequest\x1a\x1a.debateai.v1.ScoreResponse\x12W\n\x18GenerateAudienceReaction\x12\x1c.debateai.v1.AudienceRequest\x1a\x1d.debateai.v1.AudienceResponse\x12L\n\x11OrchestrateDebate\x12\x18.debateai.v1.DebateEvent\x1a\x19.debateai.v1.DebateUpdate(\x01\x30\x01\x42?Z=github.com/debateai/api-gateway/gen/go/debateai/v1;debateaiv1b\x06proto3')

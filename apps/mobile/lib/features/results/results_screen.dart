@@ -46,7 +46,7 @@ class ResultsScreen extends StatelessWidget {
                     'KEMENANGAN TELAK!',
                     style: TextStyle(
                       fontSize: 22,
-                      fontWeight: FontWeight.black,
+                      fontWeight: FontWeight.w900,
                       letterSpacing: 1,
                       color: Colors.white,
                     ),
@@ -184,7 +184,7 @@ class ResultsScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.between,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               Text('$score/100', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),

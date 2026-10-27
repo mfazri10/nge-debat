@@ -71,7 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   'DebateAI',
                   style: TextStyle(
                     fontSize: 26,
-                    fontWeight: FontWeight.black,
+                    fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
                   ),
                 ),

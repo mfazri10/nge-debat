@@ -3,7 +3,7 @@ services:
   # PostgreSQL + pgvector
   # ============================================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg17
     container_name: debateai_postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-debateai_dev}

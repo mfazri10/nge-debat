@@ -15,6 +15,8 @@ class AppColors {
   static const Color success = Color(0xFF22C55E);
   static const Color warning = Color(0xFFF59E0B);
   static const Color danger = Color(0xFFEF4444);
+  static const Color error = Color(0xFFEF4444);
+  static const Color surfaceLight = Color(0xFF1F2937);
 
   static const Color textPrimary = Color(0xFFF8FAFC);
   static const Color textSecondary = Color(0xFF94A3B8);
@@ -56,7 +58,7 @@ class AppTheme {
         bodyColor: AppColors.textPrimary,
         displayColor: AppColors.textPrimary,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(

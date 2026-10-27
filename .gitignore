@@ -1,9 +1,10 @@
 # ============================================================
-# Markdown Documents (Ignore all except README)
+# Markdown Documents (Ignore all except README & FEATURE_LIST)
 # ============================================================
 *.md
 !README.md
 !readme.md
+!FEATURE_LIST.md
 readme.txt
 
 # ============================================================
@@ -68,3 +69,21 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# ============================================================
+# Flutter & Dart
+# ============================================================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+apps/mobile/build/
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/android/local.properties
+apps/mobile/ios/Flutter/
+apps/mobile/ios/Runner/GeneratedPluginRegistrant.*
+apps/mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java

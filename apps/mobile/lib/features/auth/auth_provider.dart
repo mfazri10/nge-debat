@@ -12,6 +12,7 @@ class UserProfile {
   final int totalPoints;
   final bool isPro;
   final int warningCount;
+  final int dailyDebateQuota;
 
   UserProfile({
     required this.id,
@@ -22,6 +23,7 @@ class UserProfile {
     required this.totalPoints,
     required this.isPro,
     required this.warningCount,
+    this.dailyDebateQuota = 3,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -34,6 +36,7 @@ class UserProfile {
       totalPoints: json['total_points'] as int? ?? 0,
       isPro: json['is_pro'] as bool? ?? false,
       warningCount: json['warning_count'] as int? ?? 0,
+      dailyDebateQuota: json['daily_debate_quota'] as int? ?? (json['is_pro'] == true ? 999 : 3),
     );
   }
 }
@@ -42,12 +45,14 @@ class AuthState {
   final bool isLoading;
   final bool isAuthenticated;
   final UserProfile? user;
+  final String? token;
   final String? error;
 
   AuthState({
     this.isLoading = false,
     this.isAuthenticated = false,
     this.user,
+    this.token,
     this.error,
   });
 
@@ -55,12 +60,14 @@ class AuthState {
     bool? isLoading,
     bool? isAuthenticated,
     UserProfile? user,
+    String? token,
     String? error,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       user: user ?? this.user,
+      token: token ?? this.token,
       error: error,
     );
   }
@@ -90,6 +97,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isLoading: false,
           isAuthenticated: true,
           user: user,
+          token: token,
         );
       } else {
         state = state.copyWith(isLoading: false, isAuthenticated: false);
@@ -117,6 +125,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isLoading: false,
           isAuthenticated: true,
           user: user,
+          token: token,
         );
         return true;
       }

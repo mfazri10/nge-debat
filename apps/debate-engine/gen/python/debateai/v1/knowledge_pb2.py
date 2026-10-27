@@ -22,7 +22,7 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from debateai.v1 from debateai.v1 import messages_pb2 as proto_dot_messages__pb2
+from debateai.v1 import messages_pb2 as proto_dot_messages__pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15proto/knowledge.proto\x12\x0b\x64\x65\x62\x61teai.v1\x1a\x14proto/messages.proto2\xfc\x01\n\rKnowledgeBase\x12J\n\x0fSearchKnowledge\x12\x1a.debateai.v1.SearchRequest\x1a\x1b.debateai.v1.SearchResponse\x12R\n\x11GenerateEmbedding\x12\x1d.debateai.v1.EmbeddingRequest\x1a\x1e.debateai.v1.EmbeddingResponse\x12K\n\x0eIngestDocument\x12\x1a.debateai.v1.IngestRequest\x1a\x1b.debateai.v1.IngestProgress0\x01\x42?Z=github.com/debateai/api-gateway/gen/go/debateai/v1;debateaiv1b\x06proto3')

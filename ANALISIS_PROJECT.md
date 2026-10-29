@@ -1,0 +1,77 @@
+# Analisis Proyek DebateAI
+
+## Ringkasan
+
+DebateAI adalah monorepo untuk platform latihan debat berbantuan AI bagi pengguna Indonesia. Proyek sudah memiliki kerangka full-stack yang cukup luas: klien Flutter, API Gateway Go, engine AI Python melalui gRPC, panel admin Next.js, PostgreSQL/pgvector, Redis, serta skema dan data awal. Alur sesi debat, streaming WebSocket, penilaian AI, dan ingestion knowledge base memiliki implementasi kode nyata.
+
+Penilaian keseluruhan: **prototipe/MVP terintegrasi yang menjanjikan, tetapi belum siap digunakan di produksi**. Hambatan utamanya adalah otorisasi WebSocket yang terlalu longgar, panel admin yang masih banyak memakai data contoh, serta beberapa fallback AI dan konfigurasi deployment yang hanya layak untuk pengembangan.
+
+> Analisis ini dilakukan dengan membaca source code dan dokumentasi di repositori. Aplikasi tidak dijalankan dan tes tidak dieksekusi; jadi temuan menggambarkan implementasi yang terlihat, bukan hasil pengujian runtime.
+
+## Kelebihan
+
+1. **Batas layanan dan teknologi cukup jelas.** Klien mobile, API, engine AI, dan admin panel dipisahkan berdasarkan tanggung jawab. Kontrak antara Go dan Python dipusatkan di folder [proto](proto), dengan kode klien yang dihasilkan untuk kedua bahasa.
+
+2. **Fondasi pengalaman debat sudah terhubung ke backend.** API menyediakan alur pembuatan dan pengelolaan sesi, sedangkan Gateway menghubungkan WebSocket ke stream gRPC engine. Lihat [route Gateway](apps/api-gateway/cmd/server/main.go) dan [orchestrator debat](apps/api-gateway/internal/debate/hub.go).
+
+3. **Penilaian debat punya pembagian peran yang masuk akal.** Engine menyediakan agen lawan, tiga juri spesialis, dan reaksi audiens. Penilaian tiga juri dijalankan secara paralel dengan `asyncio.gather`; implementasinya ada di [DebateServicer](apps/debate-engine/app/servicers/debate_servicer.py), [JudgeAgent](apps/debate-engine/app/agents/judge.py), dan [AudienceAgent](apps/debate-engine/app/agents/audience.py).
+
+4. **RAG memiliki jalur ingestion dan pencarian yang konkret.** Proyek menyediakan ekstraksi transkrip YouTube/PDF, pemotongan teks, embedding, penyimpanan pgvector, dan pencarian similarity. Skema basis data juga memiliki indeks untuk vektor dan tabel terkait debat; lihat [KnowledgeBaseServicer](apps/debate-engine/app/servicers/knowledge_servicer.py) serta [migrasi skema](scripts/migrations/001_initial_schema.sql).
+
+5. **Ada perhatian terhadap autentikasi dan hak privasi.** Password di-hash dengan bcrypt, access token dan refresh token didukung, dan API menyediakan ekspor data serta penghapusan akun. Implementasi berada di [auth.go](apps/api-gateway/internal/auth/auth.go) dan route pengguna di [main.go](apps/api-gateway/cmd/server/main.go).
+
+6. **Pengembangan lokal relatif mudah direproduksi.** Docker Compose menyiapkan PostgreSQL dengan pgvector, Redis, Gateway, engine, worker, dan admin panel; sebagian layanan memiliki health check dan kebijakan restart. Contohnya ada di [docker-compose.yml](docker-compose.yml).
+
+7. **Cakupan produk dan arah pengembangan terdokumentasi.** README menjelaskan arsitektur dan cara menjalankan layanan, sementara [FEATURE_LIST.md](FEATURE_LIST.md) memberi daftar fitur dan status yang bisa menjadi dasar prioritas.
+
+## Kekurangan dan risiko
+
+| Prioritas | Temuan | Dampak |
+|---|---|---|
+| **P0 — segera** | **Otorisasi WebSocket tidak membatasi akses ke sesi.** Middleware WebSocket memberi identitas tamu saat token tidak ada ([middleware.go](apps/api-gateway/internal/auth/middleware.go#L51)). Pemeriksaan origin menerima semua origin ([handler.go](apps/api-gateway/internal/debate/handler.go#L16)). Saat memproses pesan, Gateway memakai `sessionId` dari payload, bukan sesi koneksi, dan otomatis menambahkan pengguna yang belum terdaftar sebagai partisipan ([handler.go](apps/api-gateway/internal/debate/handler.go#L165)). Aksi pause, resume, dan forfeit juga merujuk ID dari payload. | Pengguna tanpa token berpotensi mengirim argumen, mengubah status, atau mengakhiri sesi milik pengguna lain. Ini risiko keamanan paling mendesak. |
+| **P1 — sebelum uji coba publik** | **Banyak tampilan admin memakai data statis.** Kartu telemetri, status provider, aktivitas, dan tabel sesi diisi dari nilai contoh dan state lokal ([stat-cards.tsx](apps/admin-panel/src/components/telemetry/stat-cards.tsx), [circuit-breaker-panel.tsx](apps/admin-panel/src/components/telemetry/circuit-breaker-panel.tsx#L11), [live-activity-stream.tsx](apps/admin-panel/src/components/telemetry/live-activity-stream.tsx#L11), [session-table.tsx](apps/admin-panel/src/components/sessions/session-table.tsx#L8)). API admin saat ini hanya membungkus beberapa endpoint, seperti persona, knowledge, dan motions ([api.ts](apps/admin-panel/src/lib/api.ts)). | Angka dashboard tidak bisa dipakai untuk keputusan operasional. Fitur seperti live monitor, moderasi, dan kontrol admin yang tercantum di dokumen belum terbukti terhubung ke backend. |
+| **P1 — sebelum produksi** | **Transport dan default konfigurasi masih berorientasi development.** Klien mobile menetapkan HTTP/WS tanpa TLS ([api_endpoints.dart](apps/mobile/lib/core/constants/api_endpoints.dart#L14)); engine gRPC memakai `add_insecure_port` ([main.py](apps/debate-engine/main.py#L49)); Compose mengaktifkan autentikasi PostgreSQL `trust` dan menyediakan secret default ([docker-compose.yml](docker-compose.yml#L11)). | Kredensial dan trafik berisiko jika konfigurasi development dipakai di lingkungan publik. Perlu konfigurasi produksi yang mewajibkan secret kuat, TLS, dan pembatasan akses jaringan. |
+| **P1 — kualitas hasil AI** | **Fallback embedding menghasilkan vektor nol.** Engine memakai vektor nol jika API key tidak tersedia atau embedding gagal ([knowledge_servicer.py](apps/debate-engine/app/servicers/knowledge_servicer.py#L96), [knowledge_servicer.py](apps/debate-engine/app/servicers/knowledge_servicer.py#L319)). Vektor ini bukan representasi semantik yang valid untuk pencarian. | Ingestion bisa tampak berhasil tetapi pencarian RAG tidak relevan atau tidak menemukan dokumen. Lebih baik tandai proses gagal atau nonaktifkan RAG sampai embedding tersedia. |
+| **P1 — keandalan AI** | **Circuit breaker dan pencatatan provider belum sepenuhnya andal.** Circuit breaker disimpan di memori proses dan pemulihan terjadwal masih berupa TODO ([ai_factory.py](apps/debate-engine/app/core/ai_factory.py#L78)). Pada jalur non-streaming, agen melaporkan provider yang diminta walau factory dapat mengembalikan provider fallback ([opponent.py](apps/debate-engine/app/agents/opponent.py#L94)). | Status provider dan metrik penggunaan dapat tidak akurat; perilaku fallback juga sulit dipantau konsisten antar-replica.
+| **P1 — autentikasi pengguna** | **Refresh token mobile belum diimplementasikan di interceptor.** Saat menerima HTTP 401, klien hanya memiliki komentar “Handle token refresh or logout” ([api_client.dart](apps/mobile/lib/core/network/api_client.dart#L33)). Token disimpan melalui `SharedPreferences`, bukan penyimpanan rahasia khusus. | Sesi pengguna dapat berakhir tanpa pemulihan otomatis, dan perlindungan token di perangkat perlu diperkuat. Endpoint Google OAuth juga mengembalikan 501 ([auth.go](apps/api-gateway/internal/auth/auth.go#L147)). |
+| **P2 — akurasi dokumentasi** | **Status fitur di dokumen lebih optimistis daripada implementasi yang terlihat.** Matriks awal [FEATURE_LIST.md](FEATURE_LIST.md#L12) menandai banyak domain selesai, tetapi dokumen yang sama masih mencatat fitur belum selesai; implementasi OAuth juga belum aktif dan sebagian dashboard masih statis. README admin panel masih berupa panduan bawaan Next.js ([apps/admin-panel/README.md](apps/admin-panel/README.md)). | Pengguna dan tim berisiko salah mengira fitur siap dipakai. Perlu satu sumber status yang diselaraskan dengan kode dan bukti integrasi.
+| **P2 — kualitas rekayasa** | **Cakupan tes dan otomasi belum tampak di repositori.** Inventaris file tidak menemukan test suite aplikasi atau konfigurasi CI. Dependensi testing tersedia, tetapi keberadaannya belum menunjukkan tes sudah ditulis atau dijalankan. | Perubahan pada alur sesi, autentikasi, dan penilaian AI sulit diregresikan secara aman. Tambahkan tes unit/integrasi dan pemeriksaan otomatis sebagai gerbang perubahan.
+| **P2 — operasi** | **Health check Gateway hanya menjawab `status: ok`**, tanpa status dependency, dan rate limiter menggunakan memory store ([main.go](apps/api-gateway/cmd/server/main.go#L60)). Ada dua file Compose dengan konfigurasi yang hampir sama ([docker-compose.yml](docker-compose.yml), [infra/docker-compose.yml](infra/docker-compose.yml)). | Gangguan database, Redis, atau gRPC bisa sulit dibedakan dari kondisi sehat; konfigurasi duplikat berpotensi menyimpang seiring perubahan.
+
+## Tinjauan kerentanan kode
+
+Pemeriksaan lebih rinci menemukan isu akses dan ketersediaan berikut. Risiko port dan secret bersifat kondisional: dampaknya bergantung apakah konfigurasi development ini dipakai pada host yang dapat dijangkau pihak luar.
+
+1. **Tinggi (P1) — sesi dapat diakses atau diubah tanpa izin pemilik.** Route sesi hanya menerapkan JWT umum ([main.go](apps/api-gateway/cmd/server/main.go#L81)); `GetByID`, `GetResults`, dan `GetTranscript` tidak memeriksa apakah pemanggil adalah host/partisipan, sementara `Start`, `Pause`, `Resume`, dan `End` langsung mengubah status berdasarkan ID ([handler.go](apps/api-gateway/internal/session/handler.go#L159)). Siapa pun yang memiliki ID sesi dapat membaca transkrip/skor atau menghentikan sesi. ID UUID membuat penebakan lebih sulit, tetapi bukan pengganti pemeriksaan otorisasi.
+
+2. **Kritis jika port dapat dijangkau — layanan gRPC internal tidak memiliki autentikasi dan dipublikasikan.** Engine bind ke semua interface dengan `add_insecure_port` ([main.py](apps/debate-engine/main.py#L49)); Compose memetakan port 50051 ke host ([infra/docker-compose.yml#L80]). Gateway juga memakai koneksi gRPC tanpa TLS ([client.go](apps/api-gateway/pkg/grpcclient/client.go#L25)). Jika port host terbuka, klien luar dapat melewati Gateway dan memanggil RPC langsung. Hapus publikasi port engine dan terapkan mTLS atau autentikasi service-to-service.
+
+3. **Tinggi jika default dipakai — secret JWT diketahui dan aplikasi tetap berjalan.** Config memakai nilai bawaan `super-secret-jwt-key-debateai-2026` jika env `JWT_SECRET` kosong ([config.go](apps/api-gateway/pkg/config/config.go#L63)); Compose memakai nilai yang sama ([docker-compose.yml](docker-compose.yml#L59)). Tidak ada pemeriksaan startup yang menolak secret default. Dengan secret tersebut, pihak yang mengetahui nilainya dapat membuat token bertanda tangan untuk menyamar sebagai pengguna.
+
+4. **Tinggi — unggahan PDF dapat menghabiskan memori dan kuota AI.** Semua route knowledge hanya memerlukan JWT, tanpa pemeriksaan role admin ([main.go](apps/api-gateway/cmd/server/main.go#L125)). Endpoint PDF membaca seluruh file dengan `io.ReadAll` tanpa batas ukuran eksplisit ([handler.go](apps/api-gateway/internal/knowledge/handler.go#L176)); request kemudian dapat memicu ekstraksi dan embedding. Pengguna terdaftar dapat membebani memori, database, dan kuota provider. Terapkan batas ukuran HTTP sebelum membaca, batas halaman/teks, kuota per pengguna, serta role admin untuk ingestion.
+
+5. **Tinggi — spam WebSocket dapat membuat pekerjaan AI paralel tanpa batas yang jelas.** Setiap pesan memulai goroutine baru ([handler.go](apps/api-gateway/internal/debate/handler.go#L111)); setiap argumen dapat menjalankan embedding, pencarian, dan panggilan LLM. Rate limiter HTTP tidak membatasi jumlah pesan setelah koneksi WebSocket terbentuk. Ini memperkuat risiko pada temuan WebSocket P0 di tabel sebelumnya; gunakan antrean/backpressure, batas pesan per pengguna/sesi, dan timeout downstream.
+
+6. **Sedang — penghapusan, suspend, dan ban tidak langsung mencabut access token yang sudah terbit.** Pemeriksaan ban/suspend ada pada login, sedangkan JWT middleware hanya memvalidasi token dan tidak mengecek status akun pada database ([auth.go](apps/api-gateway/internal/auth/auth.go#L117), [middleware.go](apps/api-gateway/internal/auth/middleware.go#L13)). Setelah akun dihapus atau diblokir, token lama masih dapat lolos sampai kedaluwarsa (default 15 menit). Pertimbangkan revocation/version claim atau pemeriksaan status akun untuk aksi sensitif.
+
+7. **Sedang — kredensial dikirim melalui transport tidak terenkripsi dan token WebSocket diletakkan di URL.** Mobile memakai `http://` dan `ws://`, serta menambahkan token sebagai query parameter ([api_endpoints.dart](apps/mobile/lib/core/constants/api_endpoints.dart#L14)). URL dapat masuk ke log/proxy; pada HTTP/WS, token dan isi debat juga dapat terbaca di jaringan. Gunakan HTTPS/WSS dan mekanisme kredensial WebSocket yang tidak tercatat dalam URL.
+
+8. **Sedang — alur login mobile tetap membuka lobby setelah login gagal.** Kode mengarahkan pengguna ke `/lobby` pada cabang kegagalan login, dan menyediakan tombol masuk tamu ([login_screen.dart](apps/mobile/lib/features/auth/login_screen.dart#L35)). API REST tetap meminta JWT, tetapi jika digabung dengan WebSocket yang menerima tamu, batas autentikasi menjadi lemah dan perilaku klien tidak konsisten. Hapus bypass pada build produksi atau batasi secara eksplisit ke mode demo lokal.
+
+**Hal yang terlihat baik:** query SQL yang ditinjau umumnya memakai parameter, dan pembaruan profil menyusun nama kolom dari cabang kode tetap; saya tidak menemukan bukti SQL injection pada jalur-jalur tersebut. Ini bukan jaminan seluruh repositori bebas SQL injection. Pemeriksaan ini statis dan belum mencakup fuzzing, dynamic scan, konfigurasi deployment nyata, atau seluruh dependensi.
+
+## Urutan perbaikan yang disarankan
+
+1. Tutup akses lintas sesi: wajibkan token WebSocket, validasi origin, ikat ID sesi ke koneksi, dan periksa kepemilikan/keanggotaan pada semua route baca maupun perubahan status.
+2. Hapus port gRPC dari publikasi host dan lindungi komunikasi antarservice; tolak startup dengan secret default, lalu terapkan TLS dan konfigurasi database yang aman.
+3. Terapkan batas ukuran PDF, rate limit per pengguna dan per koneksi WebSocket, timeout, serta role admin untuk ingestion knowledge.
+4. Cabut akses akun terhapus/terblokir, gunakan HTTPS/WSS, dan pindahkan token mobile ke penyimpanan rahasia perangkat.
+5. Lengkapi autentikasi/otorisasi admin dan sambungkan panel ke API nyata; hentikan fallback embedding nol serta perbaiki pencatatan provider AI.
+6. Tambahkan tes untuk autentikasi, otorisasi sesi, lifecycle debat, RAG, dan fallback provider; jalankan lewat CI beserta pemeriksaan format/lint.
+7. Selaraskan FEATURE_LIST, README, implementasi, dan konfigurasi Compose; tambahkan health check dependency yang bermakna.
+
+## Kesimpulan
+
+Proyek memiliki arah produk yang kuat, arsitektur yang masuk akal, dan beberapa alur inti yang sudah dibangun melewati batas mock UI sampai ke backend. Kelebihan terbesar adalah integrasi real-time dan pemisahan engine AI yang memudahkan pengembangan fitur debat.
+
+Namun, kode saat ini memiliki risiko keamanan nyata: akses lintas sesi di WebSocket dan REST, secret JWT default yang dapat dipakai jika konfigurasi kosong, serta gRPC tanpa autentikasi yang dipublikasikan oleh Compose. Batas unggahan dan laju pesan juga perlu diperketat untuk mencegah kehabisan resource. Proyek belum aman untuk deployment publik sampai celah akses ditutup dan konfigurasi produksi dikunci. Panel admin, kualitas RAG, dan otomasi tes tetap menjadi pekerjaan penting berikutnya.

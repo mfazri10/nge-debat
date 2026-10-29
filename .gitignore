@@ -1,7 +1,7 @@
 # ============================================================
 # Markdown Documents (Ignore all except README & FEATURE_LIST)
 # ============================================================
-*.md
+
 !README.md
 !readme.md
 !FEATURE_LIST.md
